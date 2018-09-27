@@ -12,7 +12,6 @@
 
 struct {
   volatile unsigned int FLAG_ISR1:1;
-   volatile unsigned int FLAG_ISR2:1;
 }FLAG_BIT;
 
 volatile uint16_t adcval=0x00;
