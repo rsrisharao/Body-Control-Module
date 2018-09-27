@@ -1,0 +1,102 @@
+
+#include<avr/io.h>
+#include<avr/interrupt.h>
+#include<stdint.h>
+#include<util/delay.h>
+
+#define SET(PORT,BIT) PORT|=(1<<BIT)
+#define CLEAR(PORT,BIT) PORT&=~(1<<BIT)
+
+
+#define UP_LIMIT 800;
+#define DOWN_LIMIT 200;
+
+volatile uint16_t adcval1=0x0000;
+
+
+uint16_t adcread1(uint8_t adc)
+{
+  ADMUX |= (1<<REFS0);
+  ADMUX|=(adc & 0x0f);
+  ADCSRA|=(1<<ADSC);
+  while(ADCSRA &(1<<ADSC));
+  return ADC;
+}
+
+
+
+int main()
+{
+ //Serial.begin(9600);
+  
+  {
+  {
+  SET(DDRD,PD0);		//set digital pin0 as output
+  SET(DDRD,PD1);		//set digital pin1 as output
+  
+  
+  CLEAR(DDRB,PB4);		//digital pin12 as input-DOWN SWITCH
+  CLEAR(DDRB,PB5);		//digital pin13 as input-UP SWITCH    
+   
+  CLEAR(DDRC,PC0);       //ANALOG INPUT A0
+ 
+  
+  CLEAR(PINB,PB4);
+  CLEAR(PINB,PB5);
+  CLEAR(PORTD,PD0);     //CLEARING INPUTS & OUTPUTS
+  CLEAR(PORTD,PD1);      
+  CLEAR(PINC,PC0);
+  }
+  while(1)
+  {  
+    uint8_t read;
+    uint8_t upstate,downstate;
+    
+    ADCSRA|=(1<<ADEN);
+    adcval1 = adcread1(LIMIT);
+   // Serial.println(adcval1);
+      
+    read=PINB;
+    upstate=(read & (0x20));
+    downstate=(read & (0x10));
+    
+    if(upstate==0 && downstate == 0)		//no switch is pressed
+    { // Serial.println("if");
+     
+      CLEAR(PORTD,PD0);                     //motor remains in off state
+      CLEAR(PORTD,PD1);   
+    }
+    else if (upstate==0x20 && downstate == 0x10)
+      {  //Serial.println("else offf");
+      CLEAR(PORTD,PD0);                     //motor remains in off state
+      CLEAR(PORTD,PD1);   
+      }
+      
+      
+    else if(upstate==0x20 && adcval1 > 800)                 //Up_switch is On & up_limit_switch is ON
+    { //Serial.println("upstate 800");
+      CLEAR(PORTD,PD0);
+      CLEAR(PORTD,PD1);
+    }
+    else if((upstate==0x20) &&  (adcval1 <= 800))            //Up_switch is ON & within limit
+    { //Serial.println("upstate lim");
+      SET(PORTD,PD1);                 //motor rotates clockwise
+      CLEAR(PORTD,PD0);  
+    }
+    else if(downstate==0x10 && adcval1 < 200)                 //Up_switch is On & up_limit_switch is ON
+    { //Serial.println("down lim");
+      CLEAR(PORTD,PD0);
+      CLEAR(PORTD,PD1);
+    }
+    else if((downstate==0x10 && (200 <= adcval1)) )            //Up_switch is ON & within limit
+    { //Serial.println("down inbet");
+      CLEAR(PORTD,PD1);             //motor rotates clockwise
+      SET(PORTD,PD0);  
+    }
+    else
+    {//Serial.println("ryjuk");
+      CLEAR(PORTD,PD0);         //motor remains in OFF state
+      CLEAR(PORTD,PD1);  
+    }
+  }
+}
