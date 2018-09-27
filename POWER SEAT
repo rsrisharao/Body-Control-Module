@@ -10,7 +10,6 @@
 #define adp 0 
 
 volatile uint16_t counter1=0x0000;
-volatile uint16_t adcval1=0x0000;
 int val;
 
 long match(long x, long in_min, long in_max, long out_min, long out_max)
@@ -45,7 +44,7 @@ void Power_Seat_Init(void)
   CLEAR(PIND,PD3);    
 }
 
-void Timer1_Init(void)
+void Timer0_Init(void)
 {
     TCCR0A=0;
     TCNT0=0x00;
