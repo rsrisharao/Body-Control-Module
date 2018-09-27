@@ -1,0 +1,133 @@
+
+
+#include<stdint.h>
+#include<avr/io.h>
+#include<avr/interrupt.h>
+#include<util/delay.h>
+#define SET_BIT(PORT,BIT) PORT|= (1<<BIT)
+#define CLR_BIT(PORT,BIT) PORT&= ~(1<<BIT)
+
+#define adp 0
+
+
+struct {
+  volatile unsigned int FLAG_ISR1:1;
+   volatile unsigned int FLAG_ISR2:1;
+}FLAG_BIT;
+
+volatile uint16_t adcval=0x00;
+
+volatile uint16_t adcval1=0x00;
+
+uint16_t adcread(uint8_t adc)
+{
+  ADMUX |= (1<<REFS0);
+  ADMUX|=(adc & 0x0f);
+  ADCSRA|=(1<<ADSC);
+  while(ADCSRA &(1<<ADSC));
+  return ADC;
+}
+
+int main()
+{
+  Serial.begin(9600);
+  
+    SET_BIT(DDRD,PD7); 
+    SET_BIT(DDRD,PD6);// PD7 as output
+  	CLR_BIT (DDRD,PD3);			// PD3 as input
+    CLR_BIT (DDRD,PD5);
+    CLR_BIT (DDRC,PC0);
+  
+    CLR_BIT(PORTD,PD7);         
+  	CLR_BIT(PIND,PD3);
+    CLR_BIT (PINC,PC0);
+    CLR_BIT(PORTD,PD6);
+    CLR_BIT (PIND,PD5);
+  
+    EICRA|=(1<<ISC10);
+    EICRA&=~(1<<ISC11); 
+    EIMSK|=(1<<INT1); 
+  
+            TCNT2=0x00;//initial count value
+            TCCR2A|=(1<<WGM21);
+  			TCCR2A&=~(1<<WGM20);//to set timer to CTC mode
+   		    TCCR2A&=~(1<<WGM22);
+  		  	OCR2A=255;
+    		OCR2B=0;
+    		TIMSK2|=(1<<OCIE2A)|(1<<OCIE2B);
+  			TCCR2B|=((1<<CS20)|(1<<CS22));
+          	TCCR2B&=~(1<<CS21);
+    
+           sei();
+
+  FLAG_BIT.FLAG_ISR2=0;
+  FLAG_BIT.FLAG_ISR1=0;
+  
+    while(1) //super loop
+    {
+      
+      if(FLAG_BIT.FLAG_ISR1==1)
+      {
+    
+        ADCSRA|=(1<<ADEN);
+        adcval = adcread(adp);
+        uint8_t read,state;
+      
+    if(adcval<300)
+    {
+      CLR_BIT(PORTD,PD6);
+      SET_BIT(PORTD,PD7); 	  
+    }
+    else if((adcval>=300) && (adcval<=700) )
+    {
+      SET_BIT(PORTD,PD7);
+      SET_BIT(PORTD,PD6); 
+       read=PIND;
+        state=(read & (0x20));
+     
+      	if(state==0x20)
+        {   
+          	OCR2A=255;//Toff=25%
+    		OCR2B=128;//Ton=75% 
+        }
+        else
+        {   
+          	OCR2A=255;//Toff=25%
+    		OCR2B=0;//Ton=75% 
+        } 
+    }
+    else if (adcval>700)
+    {
+        CLR_BIT(PORTD,PD6);
+      	OCR2A=255;//50% duty cycle
+    	OCR2B=128;
+    }
+      }
+    else
+    {
+      CLR_BIT(PORTD,PD6);
+      CLR_BIT(PORTD,PD7);	  
+    }
+  }	
+ 	  	 
+}
+            
+
+ISR(INT1_vect)
+            {
+            FLAG_BIT.FLAG_ISR1=~FLAG_BIT.FLAG_ISR1;
+            }
+
+ ISR(TIMER2_COMPA_vect)
+  {
+  
+   	PORTD&=~(1<<PD7);
+   
+   
+ }
+ ISR(TIMER2_COMPB_vect)
+  {
+  
+   	PORTD|=(1<<PD7);		
+   
+ }
