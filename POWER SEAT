@@ -1,0 +1,109 @@
+# Body-Control-Module
+
+#include<avr/io.h>
+#include<avr/interrupt.h>
+#include<stdint.h>
+#include<util/delay.h>
+
+#define SET(PORT,BIT) PORT|=(1<<BIT)
+#define CLEAR(PORT,BIT) PORT&=~(1<<BIT)
+#define adp 0 
+
+volatile uint16_t counter1=0x0000;
+volatile uint16_t adcval1=0x0000;
+int val;
+
+long match(long x, long in_min, long in_max, long out_min, long out_max)
+{
+  return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+}
+
+
+uint16_t adcread1(uint8_t adc)
+{
+  ADMUX |= (1<<REFS0);
+  ADMUX|=(adc & 0x0f);
+  ADCSRA|=(1<<ADSC);
+  while(ADCSRA &(1<<ADSC));
+  return ADC;
+}
+
+void Power_Seat_Init(void)
+{
+  SET(DDRB,PB0);//DIGITAL PIN 8 - Motor Pin 1
+  SET(DDRD,PD7);//DIGITAL PIN 7 - Motor Pin 2
+  SET(DDRB,PB4);//DIGITAL PIN 12- Servo Control Pin
+  
+  CLEAR(DDRC,PC0);//A0  -  Potentiometer Input
+  CLEAR(DDRD,PD2);//SWITCH1- Forward Button 
+  CLEAR(DDRD,PD3);//SWITCH2- Backward Button    
+ 
+  CLEAR(PORTD,PD7);
+  CLEAR(PORTB,PB0);
+  CLEAR(PORTB,PB4);//CLEARING ALL PINS TO ZERO
+  CLEAR(PIND,PD2);
+  CLEAR(PIND,PD3);    
+}
+
+void Timer1_Init(void)
+{
+    TCCR0A=0;
+    TCNT0=0x00;
+  	TCCR0B|=(1<<CS00); //TIMER0 IN NORMAL MODE WITHOUT PRE-SCALER
+    TIMSK0|=(1<<TOIE0);
+    sei();
+}
+
+int main()
+{
+  	Power_Seat_Init();
+  	Timer0_Init();
+  while(1)
+  {    
+   	 	uint8_t read1;
+    	uint8_t state;
+    	read1=PIND;
+    	state=(read1 & (0x0c));
+    
+        ADCSRA|=(1<<ADEN);
+        adcval1 = adcread1(adp);
+        val = match(adcval1,0,1023,30,158);
+    
+    if(state==0)
+    {
+      CLEAR(PORTB,PB0);
+      CLEAR(PORTD,PD7); 	  
+    }
+    else if(state==0x04)
+    {
+      SET(PORTD,PD7);
+      CLEAR(PORTB,PB0); 
+    }
+    else if (state == 0x08)
+    {
+      SET(PORTB,PB0);
+      CLEAR(PORTD,PD7); 
+    }
+    else
+    {
+      CLEAR(PORTB,PB0);
+      CLEAR(PORTD,PD7); 	  
+    }
+  }
+}
+
+ ISR(TIMER0_OVF_vect)
+ {
+   cli();
+   counter1++;
+   if (counter1 >= 1250)
+   {
+     counter1=0;
+     PORTB|=(1<<PB4);
+    }
+   else if(counter1 == val)
+   {
+     PORTB&=~(1<<PB4);
+   }
+   sei(); 
+ }
