@@ -1,0 +1,466 @@
+
+/*                 
+							BODY CONTROL MODULE
+                            
+                       SELECTION          COMPONENTS
+ - POWER SEAT        - POT1 0-255      POT1(A0),POT2(A1),POT3(A3),SERVO(D6),DCMOTOR2(D7,D8) 
+ - POWER WINDOW      - POT1 256-510    POT1(A0),POT2(A1),SWITCH1(D5),SWITCH2(D4),DCMOTOR2(D7,D8)
+ - HEADLIGHT CONTROL - POT1 511-765    POT1(A0),POT2(A1),LED(D3),SWITCH1(D5)
+ - WIPER CONTROL     - POT1 766-1023   POT1(A0),POT2(A1),DCMOTOR1(13,12),SWITCH1(D5)     
+
+*/
+#include<avr/io.h>
+#include<avr/interrupt.h>
+#include<stdint.h>
+#include<util/delay.h>
+
+#define SET(PORT,BIT) PORT|=(1<<BIT)
+#define CLEAR(PORT,BIT) PORT&=~(1<<BIT)
+
+//POWER WINDOW
+
+#define UP_LIMIT 800
+#define DOWN_LIMIT 200
+
+/*
+           RGB LED - OFF     - ENGINE OFF
+           RGB LED - RED     - POWER SEAT
+           RGB LED - GREEEN  - POWER WINDOW
+           RGB LED - BLUE    - HEADLIGHT CONTROL
+           RGB LED - WHITE   - WIPER CONTROL                  */
+
+struct
+{
+ volatile unsigned int ENGINE:1;
+}FLAG_BIT;
+
+volatile uint16_t counter=0x0000;
+volatile uint16_t scenarioValue = 0x0000;
+
+int val;
+
+uint16_t adcread0();
+uint16_t adcread1();
+uint16_t adcread2();
+
+void setup();
+
+long match(long,long,long,long,long);
+
+void Timer0_Init();
+void Timer0_disable();
+
+void Timer0_CTC();
+
+void LED_RED();
+void LED_GREEN();
+void LED_BLUE();
+void LED_WHITE();
+void LED_OFF();
+
+int main()
+{
+Serial.begin(9600);
+  
+  
+  SET(DDRB,PB0);//DIGITAL PIN 8 - Motor Pin 1
+  SET(DDRD,PD7);//DIGITAL PIN 7 - Motor Pin 2
+  SET(DDRD,PD6);//DIGITAL PIN 6- Servo Control Pin
+  
+  SET(DDRD,PD3);//DIGITAL PIN 3 - HEADLIGHT LED
+  
+  SET(DDRB,PB4);//Digital Pin 12- Motor 2 Pin
+  
+  SET(DDRB,PB1);
+  SET(DDRB,PB2);//RGB PINs digital 9,10,11
+  SET(DDRB,PB3);
+  
+  SET(DDRB,PB5);//DIGITAL PIN 13- PWM pin
+  
+  CLEAR(DDRC,PC0);//A0  - Potentiometer Input
+  CLEAR(DDRC,PC1);//A0  - Potentiometer Input
+  CLEAR(DDRC,PC2);//A0  - Potentiometer Input
+  
+  CLEAR(DDRD,PD2);//ENGINE SWITCH
+  
+  CLEAR(DDRD,PD5);//SWITCH1
+  CLEAR(DDRD,PD4);//SWITCH2    
+ 
+  CLEAR(PORTD,PD7);
+  CLEAR(PORTB,PB0);
+  CLEAR(PIND,PD2);//CLEARING ALL PINS TO ZERO
+  CLEAR(PIND,PD5);
+  CLEAR(PIND,PD4);
+  CLEAR(PINB,PB4);
+  CLEAR(PINB,PB5);
+  CLEAR(PINC,PC0);
+  CLEAR(PINC,PC1);
+  CLEAR(PINC,PC2);
+  CLEAR(PORTD,PD3);
+  LED_OFF();
+  
+  EICRA|=(1<<ISC00);
+  EICRA&=~(1<<ISC01);//ANY LOGICAL CHANGE INTERRUPT
+  EIMSK|=(1<<INT0);
+  
+  sei();
+  
+  setup();
+  
+  while(1)
+  {  
+    if (FLAG_BIT.ENGINE == 1)
+    { 
+      Serial.println("ENGINE IS ON");
+      
+      scenarioValue = adcread0();
+      Serial.println(scenarioValue);
+
+                           //POWER SEAT
+      
+      if (scenarioValue <= 255)
+      {
+        LED_RED();
+        Timer0_Init();
+        volatile uint16_t adcval1=0x0000;
+        volatile uint16_t adcval2=0x0000;
+        setup();
+        adcval1 = adcread1();
+        adcval2 = adcread2();
+        
+        val = match(adcval1,0,1023,30,158);
+       
+    	if(adcval2 <= 255)
+    	{
+      	CLEAR(PORTB,PB0);
+      	CLEAR(PORTD,PD7);
+    	}
+    	else if(adcval2 <= 510)
+   	 	{ 
+      	CLEAR(PORTB,PB0); 
+      	SET(PORTD,PD7); 
+    	}
+    	else if (adcval2 <= 765)
+    	{
+      	SET(PORTB,PB0);
+      	CLEAR(PORTD,PD7);
+    	}
+    	else
+    	{
+      	CLEAR(PORTB,PB0);
+      	CLEAR(PORTD,PD7); 
+    	}	
+      }
+      
+      						//POWER WINDOW
+      
+      else if (scenarioValue <=510) 
+      { 
+        LED_GREEN();
+        Timer0_disable();
+        volatile uint16_t adcval1=0x0000;
+       	uint8_t read;
+        uint8_t upstate,downstate;
+    
+    	setup();
+    	adcval1 = adcread1();
+   	    Serial.println(adcval1);
+      
+    	read=PIND;
+    	upstate=(read & (0x20));
+    	downstate=(read & (0x10));
+    
+    	if(upstate==0 && downstate == 0)		
+    	{ 
+     	//No switch is pressed -      Motor OFF
+      	CLEAR(PORTB,PB0);
+      	CLEAR(PORTD,PD7);  
+    	}
+    	else if (upstate==0x20 && downstate == 0x10)
+      	{  
+      	//Both the switch is pressed- Motor OFF
+      	CLEAR(PORTB,PB0);
+      	CLEAR(PORTD,PD7);   
+      	}
+    	else if(upstate==0x20 && adcval1 > UP_LIMIT)                 
+    	{ 
+      	//Up_switch is On & up_limit is reached- Motor OFF
+      	CLEAR(PORTB,PB0);
+      	CLEAR(PORTD,PD7);
+    	}
+    	else if((upstate==0x20) &&  (adcval1 <= UP_LIMIT))            
+    	{ 
+      	//Up_switch is ON & within limit - Motor rotates clockwise
+      	CLEAR(PORTB,PB0);                 
+      	SET(PORTD,PD7);  
+    	}
+    	else if(downstate==0x10 && adcval1 < DOWN_LIMIT)                
+    	{ 
+       	//Down_switch is On & Down_limit is reached - Motor is OFF
+      	CLEAR(PORTB,PB0);
+      	CLEAR(PORTD,PD7);
+    	}
+    	else if((downstate==0x10 && (DOWN_LIMIT <= adcval1)) )            
+    	{ 
+      	//Down_switch is ON & within limit - Motor rotates Anti-clockwise
+      	SET(PORTB,PB0);  
+      	CLEAR(PORTD,PD7);            
+    	}
+    	else
+    	{
+      	CLEAR(PORTB,PB0);
+      	CLEAR(PORTD,PD7);
+    	}
+       
+      }
+      
+      							//HEADLIGHT CONTROL
+      
+      else if (scenarioValue <= 765) 
+      {
+        LED_BLUE();
+        volatile uint16_t adcval=0x0000;
+        uint8_t read,state;
+        Timer0_CTC();
+        setup();
+        adcval = adcread1();
+        
+    	if(adcval<300)
+    	{
+      	  CLEAR(PORTD,PD3);
+          OCR0B=0;
+      	}
+        
+    	else if((adcval>=300) && (adcval<=700) )
+    	{
+      	SET(PORTD,PD3); 
+       	read=PIND;
+        OCR0A=255;
+        state=(read & (0x20));
+     
+      		if(state==0x20)
+        	{   
+    		OCR0B=128;//50% duty cycle
+        	}
+            else
+            {
+    		OCR0B=0; //PWM off
+            }
+        }
+        
+    	else if (adcval>700)
+    	{
+        CLEAR(PORTD,PD3);
+      	//50% duty cycle
+    	OCR0B=128;
+        }
+        
+    	else
+    	{
+      	CLEAR(PORTD,PD3);
+      	CLEAR(PORTB,PB5);	  
+    	}
+        
+      }
+     
+      							//WIPER CONTROL
+      
+      else if (scenarioValue <= 1023) 
+      {
+        LED_WHITE();
+        volatile uint16_t adcval=0x0000;
+        CLEAR(PORTB,PB4);
+       
+        setup();
+        adcval = adcread1();
+        Serial.println(adcval);
+        
+       
+       
+        if(adcval <= 100)
+    	{
+          	Timer0_disable();
+     		CLEAR(PORTB,PB5);
+    	}
+        else if(adcval <= 255)
+        {  
+          	Timer0_CTC();
+          	OCR0A=255;
+        	OCR0B=191;
+        }
+    	else if(adcval <= 510)
+   	 	{ 
+          	Timer0_CTC();
+          	OCR0A=255;
+      		OCR0B=128;
+    	}
+    	else if (adcval <= 765)
+    	{
+          	Timer0_CTC();
+          	OCR0A=255;
+      		OCR0B=63;
+    	}
+    	else
+    	{
+          	Timer0_CTC();
+          	OCR0A=255;
+      		OCR0B=15;
+    	}	
+      }
+      
+  	}
+    else
+    {
+      Serial.println("ENGINE IS OFF");
+      Timer0_disable();
+      LED_OFF();
+      CLEAR(PORTB,PB0);
+      CLEAR(PORTB,PB5);
+      CLEAR(PORTB,PB4);
+      CLEAR(PORTD,PD7);
+      CLEAR(PORTD,PD3);
+    }
+  }
+}
+
+ISR(TIMER0_OVF_vect)
+ {
+   cli();
+   counter++;
+   if (counter >= 1250)
+   {
+     counter=0;
+     PORTD|=(1<<PD6);  //PWM FUNCTION FOR SERVO T=20ms
+    }
+   else if(counter == val)
+   {
+     PORTD&=~(1<<PD6);
+   }
+   sei(); 
+ }
+  
+ISR(INT0_vect) 
+{
+  cli();
+  FLAG_BIT.ENGINE=!FLAG_BIT.ENGINE;
+  sei();
+}
+
+ISR(TIMER0_COMPA_vect)
+{
+   	PORTB&=~(1<<PB5);
+}
+
+ISR(TIMER0_COMPB_vect)
+{
+   	PORTB|=(1<<PB5);		
+}
+      
+uint16_t adcread2()
+{
+  ADMUX &= ~(1<<MUX3);
+  ADMUX &= ~(1<<MUX2);
+  ADMUX |= (1<<MUX1); //A2 READ
+  ADMUX &= ~(1<<MUX0);
+  ADCSRA |= 1<<ADSC;
+  while (ADCSRA & (1<<ADSC));
+  return (ADC);
+}
+
+uint16_t adcread1()
+{
+  ADMUX &= ~(1<<MUX3);
+  ADMUX &= ~(1<<MUX2);
+  ADMUX &= ~(1<<MUX1);//A1 READ
+  ADMUX |= (1<<MUX0);
+  ADCSRA |= 1<<ADSC;
+  while (ADCSRA & (1<<ADSC));
+  return (ADC);
+}
+
+uint16_t adcread0()
+{
+  ADMUX &= ~(1<<MUX3);
+  ADMUX &= ~(1<<MUX2);
+  ADMUX &= ~(1<<MUX1);//A0 READ
+  ADMUX &= ~(1<<MUX0);
+  ADCSRA |= 1<<ADSC;
+  while (ADCSRA & (1<<ADSC));
+  return (ADC);
+}
+
+void setup()
+{
+  ADCSRA |= (1<<ADEN);	//ADC Initialisation
+  ADMUX |= (1<<REFS0);	//set reference voltage
+  /* control and status register prescaling */
+  ADCSRA |= ((1<<ADPS2) | (1<<ADPS1) | (1<<ADPS0));
+}
+
+void Timer0_Init()
+{
+ TCCR0A=0;
+ TCNT0=0x00;
+ TCCR0B|=(1<<CS00); //TIMER0 IN NORMAL MODE WITHOUT PRE-SCALER
+ TIMSK0|=(1<<TOIE0);
+ sei();
+}
+
+  void Timer0_disable()
+{
+  	TCCR0B=0; 
+    TIMSK0&=~(1<<TOIE0);
+    TIMSK0&=~(1<<OCIE0A);//TIMERO DISABLE FUNCTION
+    TIMSK0&=~(1<<OCIE0B);
+    sei();
+}
+
+  void Timer0_CTC()
+{
+   TCCR0A|=(1<<WGM01)|(1<<WGM00); //to set timer to CTC mode
+   TCCR0B&=~(1<<WGM02);
+   TCCR0B|=(1<<CS00)|(1<<CS02);//To set prescaler to clk/1024
+   TCCR0B&=~(1<<CS01);    
+   TIMSK0|=(1<<OCIE0A)|(1<<OCIE0B);//to enable OCIE0A and OCIE0
+   sei();
+}
+
+long match(long x, long in_min, long in_max, long out_min, long out_max)
+{
+  return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+}
+
+void LED_RED()
+{
+  SET(PORTB,PB1);
+  CLEAR(PORTB,PB2);
+  CLEAR(PORTB,PB3);
+}
+
+void LED_GREEN()
+{
+  CLEAR(PORTB,PB1);
+  CLEAR(PORTB,PB2);
+  SET(PORTB,PB3);
+}
+
+void LED_BLUE()
+{
+  CLEAR(PORTB,PB1);
+  SET(PORTB,PB2);
+  CLEAR(PORTB,PB3);
+}
+
+void LED_WHITE()
+{
+  SET(PORTB,PB1);
+  SET(PORTB,PB2);
+  SET(PORTB,PB3);
+}
+
+void LED_OFF()
+{
+  CLEAR(PORTB,PB1);
+  CLEAR(PORTB,PB2);
+  CLEAR(PORTB,PB3);
+}
