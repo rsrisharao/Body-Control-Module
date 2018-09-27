@@ -8,8 +8,8 @@
 #define CLEAR(PORT,BIT) PORT&=~(1<<BIT)
 
 
-#define UP_LIMIT 800;
-#define DOWN_LIMIT 200;
+#define UP_LIMIT 800
+#define DOWN_LIMIT 200
 
 volatile uint16_t adcval1=0x0000;
 
@@ -29,7 +29,7 @@ int main()
 {
  //Serial.begin(9600);
   
-  {
+  
   {
   SET(DDRD,PD0);		//set digital pin0 as output
   SET(DDRD,PD1);		//set digital pin1 as output
