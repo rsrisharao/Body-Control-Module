@@ -14,7 +14,7 @@ struct
 
 
 volatile uint16_t adc_val=0x0000;
-volatile uint16_t engine=0x0000;
+
 
 uint16_t adc_read(uint8_t adc)
 {
